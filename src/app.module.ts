@@ -4,6 +4,9 @@ import { AppService } from './app.service.js';
 import { ConfigModule } from '@nestjs/config';
 import { validate } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
+import { EquipmentModule } from './equipment/equipment.module.js';
+import { RoomsModule } from './rooms/rooms.module.js';
 
 @Module({
   imports: [
@@ -11,7 +14,10 @@ import { HealthModule } from './health/health.module.js';
       isGlobal: true,
       validate,
     }),
-    HealthModule
+    PrismaModule,
+    HealthModule,
+    EquipmentModule,
+    RoomsModule
   ],
   controllers: [AppController],
   providers: [AppService],
