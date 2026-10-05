@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         Role      @default(MEMBER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  bookings     Booking[]
+
+  @@map("users")
+}
+
+model Equipment {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  rooms     Room[]
+
+  @@map("equipments")
+}
+
+model Room {
+  id         String      @id @default(uuid())
+  name       String      @unique
+  capacity   Int
+  floor      Int
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  equipments Equipment[]
+  bookings   Booking[]
+
+  @@index([isActive, capacity, floor])
+  @@map("rooms")
+}
+
+model Booking {
+  id             String        @id @default(uuid())
+  title          String
+  startsAt       DateTime
+  endsAt         DateTime
+  status         BookingStatus @default(CONFIRMED)
+  attendeesCount Int
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  roomId         String
+  room           Room          @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  @@index([roomId, startsAt, endsAt])
+  @@map("bookings")
+}
