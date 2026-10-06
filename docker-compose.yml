@@ -30,6 +30,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      RUN_SEED: ${RUN_SEED:-false}
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/booking_db?schema=public
     depends_on:
       postgres:
