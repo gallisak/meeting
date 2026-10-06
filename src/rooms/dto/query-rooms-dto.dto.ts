@@ -17,7 +17,10 @@ export class QueryRoomsDto {
   @IsOptional()
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: 'Number of records (max 100)', default: 10 })
+  @ApiPropertyOptional({
+    description: 'Number of records (max 100)',
+    default: 10,
+  })
   @Type(() => Number)
   @IsInt()
   @Min(1)

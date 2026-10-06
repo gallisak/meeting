@@ -8,26 +8,28 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true
-  }))
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
-  app.useGlobalFilters(new HttpExceptionFilter())
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   const swaggerConfig = new DocumentBuilder()
-  .setTitle('Meeting API')
-  .setDescription('REST API for booking meeting rooms')
-  .setVersion("1.0")
-  .addBearerAuth()
-  .build();
+    .setTitle('Meeting API')
+    .setDescription('REST API for booking meeting rooms')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('/api/docs', app, document)
+  SwaggerModule.setup('/api/docs', app, document);
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('PORT', 3000)
+  const port = configService.get<number>('PORT', 3000);
 
   await app.listen(port);
 }

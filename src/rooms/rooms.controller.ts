@@ -9,7 +9,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -34,7 +39,10 @@ export class RoomsController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden: Admin role required' })
-  @ApiResponse({ status: 409, description: 'Room with this name already exists' })
+  @ApiResponse({
+    status: 409,
+    description: 'Room with this name already exists',
+  })
   create(@Body() dto: CreateRoomDto) {
     return this.roomsService.create(dto);
   }
@@ -59,16 +67,18 @@ export class RoomsController {
   @Patch(':id')
   @UseGuards(RolesGuard)
   @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Update room details or deactivate room (Admin only)' })
+  @ApiOperation({
+    summary: 'Update room details or deactivate room (Admin only)',
+  })
   @ApiResponse({ status: 200, description: 'Room successfully updated' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden: Admin role required' })
   @ApiResponse({ status: 404, description: 'Room not found' })
-  @ApiResponse({ status: 409, description: 'Room with this name already exists' })
-  update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateRoomDto,
-  ) {
+  @ApiResponse({
+    status: 409,
+    description: 'Room with this name already exists',
+  })
+  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoomDto) {
     return this.roomsService.update(id, dto);
   }
 }

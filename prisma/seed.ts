@@ -1,30 +1,30 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
 async function main() {
-    console.log("Cleaning the database");
-    
-    await prisma.booking.deleteMany();
-    await prisma.room.deleteMany();
-    await prisma.equipment.deleteMany();
-    await prisma.user.deleteMany();
+  console.log('Cleaning the database');
 
-    console.log("Creating an administrator");
+  await prisma.booking.deleteMany();
+  await prisma.room.deleteMany();
+  await prisma.equipment.deleteMany();
+  await prisma.user.deleteMany();
 
-    const passwordHash = await bcrypt.hash('Admin123!', 10);
+  console.log('Creating an administrator');
 
-    await prisma.user.create({
-        data: {
-            email: 'admin@booking.com',
-            passwordHash,
-            name: 'System Admin',
-            role: Role.ADMIN
-        }
-    });
+  const passwordHash = await bcrypt.hash('Admin123!', 10);
 
-    console.log('Equipment manufacturing');
+  await prisma.user.create({
+    data: {
+      email: 'admin@booking.com',
+      passwordHash,
+      name: 'System Admin',
+      role: Role.ADMIN,
+    },
+  });
+
+  console.log('Equipment manufacturing');
   const projector = await prisma.equipment.create({
     data: { name: 'projector' },
   });
@@ -67,7 +67,7 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error("Seed execution error:", error);
+    console.error('Seed execution error:', error);
     process.exit(1);
   })
   .finally(async () => {

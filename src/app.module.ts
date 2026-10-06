@@ -21,7 +21,7 @@ import { AuthModule } from './auth/auth.module.js';
     EquipmentModule,
     RoomsModule,
     UsersModule,
-    AuthModule
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

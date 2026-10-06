@@ -4,6 +4,6 @@ import { EquipmentService } from './equipment.service.js';
 
 @Module({
   controllers: [EquipmentController],
-  providers: [EquipmentService]
+  providers: [EquipmentService],
 })
 export class EquipmentModule {}

@@ -5,26 +5,31 @@ import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class EquipmentService {
-    constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-    async findAll() {
-        return this.prisma.equipment.findMany({
-            orderBy: { name: "asc" }
-        });
-    }
+  async findAll() {
+    return this.prisma.equipment.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
 
-    async create(dto: CreateEquipmentDto) {
-        try {
-            return await this.prisma.equipment.create({
-                data: {
-                    name: dto.name
-                }
-            });
-        } catch (error) {
-            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-                throw new ConflictException(`Equipment named "${dto.name}" already exists`);
-            }
-            throw error;
-        }
+  async create(dto: CreateEquipmentDto) {
+    try {
+      return await this.prisma.equipment.create({
+        data: {
+          name: dto.name,
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          `Equipment named "${dto.name}" already exists`,
+        );
+      }
+      throw error;
     }
+  }
 }
