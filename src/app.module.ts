@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
 import { ConfigModule } from '@nestjs/config';
 import { validate } from './config/env.validation.js';
 import { HealthModule } from './health/health.module.js';
@@ -21,9 +19,7 @@ import { AuthModule } from './auth/auth.module.js';
     EquipmentModule,
     RoomsModule,
     UsersModule,
-    AuthModule
+    AuthModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}

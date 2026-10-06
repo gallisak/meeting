@@ -1,124 +1,142 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Meeting Room Booking API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+REST API for booking meeting rooms built with NestJS, Prisma, and PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Getting Started
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+### Environment Variables
 
 ```bash
-$ npm install
+cp .env.example .env
 ```
 
-## Compile and run the project
+| Variable | Description |
+| --- | --- |
+| `NODE_ENV` | `development`, `production` or `test` |
+| `PORT` | API port (default: `3000`) |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES_IN` | Access token secret and lifetime |
+| `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN` | Refresh token secret and lifetime |
+| `RUN_SEED` | Set to `true` to run seed on container startup (default: `false`) |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Administrator credentials for seed |
+
+### Running the App
 
 ```bash
-# development
-$ npm run start
+# Docker, first run (applies migrations and runs the seed)
+RUN_SEED=true docker compose up --build
 
-# watch mode
-$ npm run start:dev
+# Docker, later runs (applies migrations, no seed)
+docker compose up
 
-# production mode
-$ npm run start:prod
+# Run seed manually
+docker compose exec api npx prisma db seed
+
+# Local
+npm ci
+docker compose up postgres -d
+npx prisma migrate dev
+npx prisma db seed
+npm run start:dev
 ```
 
-## Run tests
+The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD`, the equipment list and two rooms.
+
+## Documentation & Auth
+
+- **Swagger**: `http://localhost:3000/api/docs`
+- **Authentication**: JWT Bearer token required globally. Public endpoints (`@Public()`): `/auth/register`, `/auth/login`, `/auth/refresh`, and `/health`.
+
+## Project Structure
+
+| Path | Responsibility |
+| --- | --- |
+| `src/auth` | Registration, login, refresh token rotation, logout, JWT strategy, guards and decorators |
+| `src/users` | User lookups and `GET /users/me` |
+| `src/rooms` | Room creation, update, filters and pagination |
+| `src/equipment` | Equipment list and creation |
+| `src/health` | `GET /health` with a database check |
+| `src/prisma` | Prisma client as a global Nest provider |
+| `src/common` | Exception filter and shared DTOs |
+| `src/config` | Environment validation |
+| `src/app.setup.ts` | Global `ValidationPipe` and exception filter, shared by `main.ts` and e2e tests |
+| `prisma` | Schema, migrations and seed |
+
+## Tests
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm test
+npm run test:e2e
 ```
 
-## Deployment
+## Room Filter Indexes
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Filters in `GET /rooms` (`floor` and `minCapacity`) are optional and independent. We use two separate single-column indexes: `@@index([floor])` and `@@index([capacity])`.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### EXPLAIN ANALYZE (PostgreSQL 16, 100k generated rows)
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+1. **Filter by floor** (`rooms_floor_idx`):
+
+```text
+EXPLAIN ANALYZE
+SELECT * FROM rooms WHERE floor = 7 ORDER BY "createdAt" DESC, id DESC LIMIT 10;
+
+ Limit  (cost=1491.55..1491.57 rows=10 width=72) (actual time=2.125..2.127 rows=10 loops=1)
+   ->  Sort  (cost=1491.55..1496.82 rows=2107 width=72) (actual time=2.124..2.125 rows=10 loops=1)
+         Sort Key: "createdAt" DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 26kB
+         ->  Bitmap Heap Scan on rooms  (cost=28.62..1446.02 rows=2107 width=72) (actual time=0.274..1.899 rows=2038 loops=1)
+               Recheck Cond: (floor = 7)
+               Heap Blocks: exact=1044
+               ->  Bitmap Index Scan on rooms_floor_idx  (cost=0.00..28.09 rows=2107 width=0) (actual time=0.178..0.178 rows=2038 loops=1)
+                     Index Cond: (floor = 7)
+ Planning Time: 0.571 ms
+ Execution Time: 2.168 ms
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+2. **Filter by capacity** (`rooms_capacity_idx`):
 
-## Observability
+```text
+EXPLAIN ANALYZE
+SELECT * FROM rooms WHERE capacity >= 90 ORDER BY "createdAt" DESC, id DESC LIMIT 10;
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project:
-
-```bash
-$ npm install @nestjs/observe
+ Limit  (cost=1520.35..1520.37 rows=10 width=72) (actual time=1.605..1.607 rows=10 loops=1)
+   ->  Sort  (cost=1520.35..1530.27 rows=3967 width=72) (actual time=1.605..1.606 rows=10 loops=1)
+         Sort Key: "createdAt" DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 26kB
+         ->  Bitmap Heap Scan on rooms  (cost=51.04..1434.62 rows=3967 width=72) (actual time=0.364..1.297 rows=3876 loops=1)
+               Recheck Cond: (capacity >= 90)
+               Heap Blocks: exact=1263
+               ->  Bitmap Index Scan on rooms_capacity_idx  (cost=0.00..50.04 rows=3967 width=0) (actual time=0.254..0.254 rows=3876 loops=1)
+                     Index Cond: (capacity >= 90)
+ Planning Time: 0.038 ms
+ Execution Time: 1.626 ms
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/overview) - it takes a single import and an app key.
+3. **Both filters** (the two indexes are combined with `BitmapAnd`):
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+```text
+EXPLAIN ANALYZE
+SELECT * FROM rooms WHERE capacity >= 90 AND floor = 7 ORDER BY "createdAt" DESC, id DESC LIMIT 10;
 
-## Resources
+ Limit  (cost=348.52..348.54 rows=10 width=72) (actual time=0.441..0.442 rows=10 loops=1)
+   ->  Sort  (cost=348.52..348.73 rows=84 width=72) (actual time=0.441..0.441 rows=10 loops=1)
+         Sort Key: "createdAt" DESC, id DESC
+         Sort Method: top-N heapsort  Memory: 26kB
+         ->  Bitmap Heap Scan on rooms  (cost=78.43..346.70 rows=84 width=72) (actual time=0.403..0.431 rows=71 loops=1)
+               Recheck Cond: ((floor = 7) AND (capacity >= 90))
+               Heap Blocks: exact=70
+               ->  BitmapAnd  (cost=78.43..78.43 rows=84 width=0) (actual time=0.395..0.395 rows=0 loops=1)
+                     ->  Bitmap Index Scan on rooms_floor_idx  (cost=0.00..28.09 rows=2107 width=0) (actual time=0.150..0.150 rows=2038 loops=1)
+                           Index Cond: (floor = 7)
+                     ->  Bitmap Index Scan on rooms_capacity_idx  (cost=0.00..50.04 rows=3967 width=0) (actual time=0.206..0.206 rows=3876 loops=1)
+                           Index Cond: (capacity >= 90)
+ Planning Time: 0.038 ms
+ Execution Time: 0.467 ms
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+### Why two separate indexes instead of a composite index?
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- **Filters are optional**: users can query by `floor` only, `capacity` only, or both together.
+- **Composite index limitations**: a composite index only works well when its first column is filtered. With a composite `(capacity, floor)` index on the same data, the floor-only query fell back to a full table scan (`Seq Scan`, 6.1 ms instead of 2.2 ms).
+- **PostgreSQL BitmapAnd**: two separate indexes cover each filter on its own, and PostgreSQL combines them with `BitmapAnd` when both filters are set.

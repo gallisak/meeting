@@ -5,9 +5,9 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CreateRoomDto } from './dto/create-room-dto.dto.js';
-import { QueryRoomsDto } from './dto/query-rooms-dto.dto.js';
-import { UpdateRoomDto } from './dto/update-room-dto.dto.js';
+import { CreateRoomDto } from './dto/create-room.dto.js';
+import { QueryRoomsDto } from './dto/query-rooms.dto.js';
+import { UpdateRoomDto } from './dto/update-room.dto.js';
 
 @Injectable()
 export class RoomsService {
@@ -33,13 +33,15 @@ export class RoomsService {
         },
       });
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          `A room named "${dto.name}" already exists`,
-        );
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new ConflictException(
+            `A room named "${dto.name}" already exists`,
+          );
+        }
+        if (error.code === 'P2025') {
+          throw new NotFoundException('One or more equipment IDs not found');
+        }
       }
       throw error;
     }
@@ -77,7 +79,7 @@ export class RoomsService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         include: {
           equipments: true,
         },
@@ -131,13 +133,15 @@ export class RoomsService {
         },
       });
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          `A room named "${dto.name}" already exists`,
-        );
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new ConflictException(
+            `A room named "${dto.name}" already exists`,
+          );
+        }
+        if (error.code === 'P2025') {
+          throw new NotFoundException('One or more equipment IDs not found');
+        }
       }
       throw error;
     }
