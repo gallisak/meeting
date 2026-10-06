@@ -1,17 +1,47 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import {
+  ApiOkResponse,
+  ApiOperation,
+  ApiServiceUnavailableResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ErrorResponseDto } from '../common/dto/error-response.dto.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import { HealthResponseDto } from './dto/health-response.dto.js';
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
+  constructor(private readonly prisma: PrismaService) {}
+
   @Get()
-  @ApiOperation({ summary: 'Server functionality check' })
+  @ApiOperation({ summary: 'Server and database functionality check' })
   @ApiOkResponse({
-    description: 'The service is running stably',
+    description: 'The service is running and the database is reachable',
     type: HealthResponseDto,
   })
-  check(): HealthResponseDto {
+  @ApiServiceUnavailableResponse({
+    description: 'The database is unavailable',
+    type: ErrorResponseDto,
+  })
+  async check(): Promise<HealthResponseDto> {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch (error) {
+      this.logger.error(
+        'Database health check failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+      throw new ServiceUnavailableException('Database is unavailable');
+    }
+
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
