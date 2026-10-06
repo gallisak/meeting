@@ -10,6 +10,7 @@ import {
   ApiServiceUnavailableResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Public } from '../auth/decorators/public.decorator.js';
 import { ErrorResponseDto } from '../common/dto/error-response.dto.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { HealthResponseDto } from './dto/health-response.dto.js';
@@ -21,6 +22,7 @@ export class HealthController {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Server and database functionality check' })
   @ApiOkResponse({

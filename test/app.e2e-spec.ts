@@ -41,6 +41,17 @@ describe('HealthController (e2e)', () => {
       });
   });
 
+  it('rejects a request without a token on a non-public endpoint', () => {
+    return request(app.getHttpServer()).get('/rooms').expect(401);
+  });
+
+  it('keeps public auth endpoints reachable without a token', () => {
+    return request(app.getHttpServer())
+      .post('/auth/login')
+      .send({})
+      .expect(400);
+  });
+
   afterEach(async () => {
     await app.close();
   });

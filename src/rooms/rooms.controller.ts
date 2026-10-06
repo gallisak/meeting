@@ -23,7 +23,6 @@ import {
 } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator.js';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { ErrorResponseDto } from '../common/dto/error-response.dto.js';
 import { CreateRoomDto } from './dto/create-room.dto.js';
@@ -37,7 +36,6 @@ import { RoomsService } from './rooms.service.js';
 
 @ApiTags('Rooms')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @ApiUnauthorizedResponse({
   description: 'Unauthorized',
   type: ErrorResponseDto,
