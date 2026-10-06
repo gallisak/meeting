@@ -5,18 +5,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { UsersService } from '../users/users.service.js';
+import { createHash, randomUUID } from 'node:crypto';
+import { SafeUser, UsersService } from '../users/users.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
-
-interface JwtPayload {
-  sub: string;
-  email: string;
-  role: Role;
-}
+import { JwtPayload } from './interfaces/jwt-payload.interface.js';
 
 @Injectable()
 export class AuthService {
@@ -27,22 +23,34 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const existingUser = await this.usersService.findByEmail(dto.email);
+    const { email } = dto;
+    const existingUser = await this.usersService.findByEmailWithPassword(email);
     if (existingUser) {
-      throw new ConflictException(
-        `User with email "${dto.email}" already exists`,
-      );
+      throw new ConflictException(`User with email "${email}" already exists`);
     }
 
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(dto.password, saltRounds);
 
-    const newUser = await this.usersService.create({
-      email: dto.email,
-      name: dto.name,
-      passwordHash,
-      role: Role.MEMBER,
-    });
+    let newUser: SafeUser;
+    try {
+      newUser = await this.usersService.create({
+        email,
+        name: dto.name,
+        passwordHash,
+        role: Role.MEMBER,
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          `User with email "${email}" already exists`,
+        );
+      }
+      throw error;
+    }
 
     const tokens = await this.generateTokens({
       sub: newUser.id,
@@ -50,26 +58,28 @@ export class AuthService {
       role: newUser.role,
     });
 
-    await this.updateRefreshTokenHash(newUser.id, tokens.refreshToken);
-
-    const { passwordHash: _, refreshTokenHash: __, ...userProfile } = newUser;
+    await this.usersService.updateRefreshTokenHash(
+      newUser.id,
+      this.hashToken(tokens.refreshToken),
+    );
 
     return {
-      user: userProfile,
+      user: newUser,
       ...tokens,
     };
   }
 
   async login(dto: LoginDto) {
-    const user = await this.usersService.findByEmail(dto.email);
-    if (!user) {
+    const foundUser = await this.usersService.findByEmailWithPassword(
+      dto.email,
+    );
+    if (!foundUser) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      dto.password,
-      user.passwordHash,
-    );
+    const { passwordHash, ...user } = foundUser;
+
+    const isPasswordValid = await bcrypt.compare(dto.password, passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
@@ -80,12 +90,13 @@ export class AuthService {
       role: user.role,
     });
 
-    await this.updateRefreshTokenHash(user.id, tokens.refreshToken);
-
-    const { passwordHash: _, refreshTokenHash: __, ...userProfile } = user;
+    await this.usersService.updateRefreshTokenHash(
+      user.id,
+      this.hashToken(tokens.refreshToken),
+    );
 
     return {
-      user: userProfile,
+      user,
       ...tokens,
     };
   }
@@ -104,33 +115,35 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    const user = await this.usersService.findById(payload.sub);
-    if (!user || !user.refreshTokenHash) {
-      throw new UnauthorizedException('Access denied or user logged out');
-    }
-
-    const isRefreshTokenValid = await bcrypt.compare(
-      dto.refreshToken,
-      user.refreshTokenHash,
-    );
-
-    if (!isRefreshTokenValid) {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
+    const currentHash = this.hashToken(dto.refreshToken);
 
     const tokens = await this.generateTokens({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
+      sub: payload.sub,
+      email: payload.email,
+      role: payload.role,
     });
 
-    await this.updateRefreshTokenHash(user.id, tokens.refreshToken);
+    const newHash = this.hashToken(tokens.refreshToken);
+
+    const rotated = await this.usersService.rotateRefreshToken(
+      payload.sub,
+      currentHash,
+      newHash,
+    );
+
+    if (!rotated) {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
 
     return tokens;
   }
 
   async logout(userId: string): Promise<void> {
     await this.usersService.updateRefreshTokenHash(userId, null);
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
   private async generateTokens(payload: JwtPayload) {
@@ -141,23 +154,20 @@ export class AuthService {
           'JWT_ACCESS_EXPIRES_IN',
         ),
       }),
-      this.jwtService.signAsync(payload, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-        expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
-          'JWT_REFRESH_EXPIRES_IN',
-        ),
-      }),
+      this.jwtService.signAsync(
+        { ...payload, jti: randomUUID() },
+        {
+          secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+          expiresIn: this.configService.get<JwtSignOptions['expiresIn']>(
+            'JWT_REFRESH_EXPIRES_IN',
+          ),
+        },
+      ),
     ]);
 
     return {
       accessToken,
       refreshToken,
     };
-  }
-
-  private async updateRefreshTokenHash(userId: string, refreshToken: string) {
-    const saltRounds = 10;
-    const refreshTokenHash = await bcrypt.hash(refreshToken, saltRounds);
-    await this.usersService.updateRefreshTokenHash(userId, refreshTokenHash);
   }
 }
