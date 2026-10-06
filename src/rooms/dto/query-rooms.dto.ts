@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
@@ -8,36 +8,23 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import { MAX_ROOM_CAPACITY, MAX_ROOM_FLOOR } from './create-room.dto.js';
 
-export class QueryRoomsDto {
-  @ApiPropertyOptional({ description: 'Page number', default: 1 })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  page?: number = 1;
-
-  @ApiPropertyOptional({
-    description: 'Number of records (max 100)',
-    default: 10,
-  })
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  @IsOptional()
-  limit?: number = 10;
-
+export class QueryRoomsDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Minimum room capacity' })
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(MAX_ROOM_CAPACITY)
   @IsOptional()
   minCapacity?: number;
 
   @ApiPropertyOptional({ description: 'Floor' })
   @Type(() => Number)
   @IsInt()
+  @Min(1)
+  @Max(MAX_ROOM_FLOOR)
   @IsOptional()
   floor?: number;
 
@@ -47,7 +34,11 @@ export class QueryRoomsDto {
   equipmentId?: string;
 
   @ApiPropertyOptional({ description: 'Room activity status' })
-  @Type(() => Boolean)
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;

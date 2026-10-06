@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { Role } from '@prisma/client';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 
 @ApiTags('Equipment')
 @ApiBearerAuth()
@@ -20,11 +28,12 @@ export class EquipmentController {
   constructor(private readonly equipmentService: EquipmentService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all equipment items' })
-  @ApiResponse({ status: 200, description: 'List of equipment' })
+  @ApiOperation({ summary: 'Get paginated list of equipment' })
+  @ApiResponse({ status: 200, description: 'Paginated list of equipment' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  findAll() {
-    return this.equipmentService.findAll();
+  findAll(@Query() query: PaginationQueryDto) {
+    return this.equipmentService.findAll(query);
   }
 
   @Post()

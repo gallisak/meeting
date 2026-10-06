@@ -19,9 +19,9 @@ import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
-import { CreateRoomDto } from './dto/create-room-dto.dto.js';
-import { QueryRoomsDto } from './dto/query-rooms-dto.dto.js';
-import { UpdateRoomDto } from './dto/update-room-dto.dto.js';
+import { CreateRoomDto } from './dto/create-room.dto.js';
+import { QueryRoomsDto } from './dto/query-rooms.dto.js';
+import { UpdateRoomDto } from './dto/update-room.dto.js';
 import { RoomsService } from './rooms.service.js';
 
 @ApiTags('Rooms')

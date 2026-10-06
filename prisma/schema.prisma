@@ -52,7 +52,8 @@ model Room {
   equipments Equipment[]
   bookings   Booking[]
 
-  @@index([isActive, capacity, floor])
+  @@index([capacity])
+  @@index([floor])
   @@map("rooms")
 }
 
