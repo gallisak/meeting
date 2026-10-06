@@ -7,6 +7,8 @@ import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { EquipmentModule } from './equipment/equipment.module.js';
 import { RoomsModule } from './rooms/rooms.module.js';
+import { UsersModule } from './users/users.module.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [
@@ -17,7 +19,9 @@ import { RoomsModule } from './rooms/rooms.module.js';
     PrismaModule,
     HealthModule,
     EquipmentModule,
-    RoomsModule
+    RoomsModule,
+    UsersModule,
+    AuthModule
   ],
   controllers: [AppController],
   providers: [AppService],

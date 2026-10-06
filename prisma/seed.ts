@@ -1,4 +1,5 @@
 import { PrismaClient, Role } from "@prisma/client";
+import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
@@ -12,10 +13,12 @@ async function main() {
 
     console.log("Creating an administrator");
 
+    const passwordHash = await bcrypt.hash('Admin123!', 10);
+
     await prisma.user.create({
         data: {
             email: 'admin@booking.com',
-            passwordHash: 'temporaryHashForAdminSeedOnly',
+            passwordHash,
             name: 'System Admin',
             role: Role.ADMIN
         }
