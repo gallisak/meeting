@@ -1,13 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { setupApp } from '../src/app.setup.js';
+import {
+  isBookingOverlapError,
+  isDeadlockError,
+} from '../src/bookings/booking-overlap.error.js';
+import { isDatabaseBusyError } from '../src/common/database-busy.error.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('Bookings (e2e)', () => {
   let app: INestApplication;
@@ -16,6 +24,9 @@ describe('Bookings (e2e)', () => {
   let otherToken: string;
   let roomId: string;
   let inactiveRoomId: string;
+  let ownerId: string;
+
+  const roomIds: string[] = [];
 
   const suffix = randomUUID();
   const emails = [`owner-${suffix}@test.local`, `other-${suffix}@test.local`];
@@ -66,14 +77,18 @@ describe('Bookings (e2e)', () => {
     });
     roomId = room.id;
     inactiveRoomId = inactiveRoom.id;
+    roomIds.push(roomId, inactiveRoomId);
 
     ownerToken = await register(emails[0]);
     otherToken = await register(emails[1]);
+
+    const owner = await prisma.user.findUniqueOrThrow({
+      where: { email: emails[0] },
+    });
+    ownerId = owner.id;
   });
 
   afterAll(async () => {
-    const roomIds = [roomId, inactiveRoomId];
-
     await prisma.booking.deleteMany({ where: { roomId: { in: roomIds } } });
     await prisma.room.deleteMany({ where: { id: { in: roomIds } } });
     await prisma.user.deleteMany({ where: { email: { in: emails } } });
@@ -242,5 +257,115 @@ describe('Bookings (e2e)', () => {
 
     expect(statuses.filter((status) => status === 201)).toHaveLength(1);
     expect(statuses.filter((status) => status === 409)).toHaveLength(19);
+  });
+
+  it('does not book a room deactivated while the request waits', async () => {
+    const room = await prisma.room.create({
+      data: { name: `Locked room ${suffix}`, capacity: 4, floor: 1 },
+    });
+    roomIds.push(room.id);
+
+    let status: number | undefined;
+    let message: string | undefined;
+    let booking: Promise<void> | undefined;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT "id" FROM "rooms" WHERE "id" = ${room.id} FOR UPDATE
+      `;
+
+      booking = book(ownerToken, { ...slot(10, 10, 11), roomId: room.id }).then(
+        (res) => {
+          status = res.status;
+          message = res.body.message;
+        },
+      );
+
+      await wait(300);
+      expect(status).toBeUndefined();
+
+      await tx.room.update({
+        where: { id: room.id },
+        data: { isActive: false },
+      });
+    });
+
+    await booking;
+
+    expect(status).toBe(409);
+    expect(message).toBe('Room is not active and cannot be booked');
+  });
+
+  it('recognises real overlap and deadlock errors from the database', async () => {
+    const create = (
+      client: Pick<PrismaService, 'booking'>,
+      startHour: number,
+      endHour: number,
+    ) =>
+      client.booking.create({
+        data: {
+          ...slot(11, startHour, endHour),
+          title: 'Database error',
+          attendeesCount: 1,
+          userId: ownerId,
+          roomId,
+        },
+      });
+
+    await create(prisma, 8, 9);
+    const overlapError = await create(prisma, 8.5, 9.5).catch(
+      (error: unknown) => error,
+    );
+
+    expect(isBookingOverlapError(overlapError)).toBe(true);
+    expect(isDeadlockError(overlapError)).toBe(false);
+
+    const results = await Promise.allSettled([
+      prisma.$transaction(async (tx) => {
+        await create(tx, 10, 11);
+        await wait(300);
+        await create(tx, 12, 13);
+      }),
+      prisma.$transaction(async (tx) => {
+        await create(tx, 12.5, 13.5);
+        await wait(300);
+        await create(tx, 10.5, 11.5);
+      }),
+    ]);
+    const failures = results.filter((result) => result.status === 'rejected');
+
+    expect(failures).toHaveLength(1);
+    expect(isDeadlockError(failures[0].reason)).toBe(true);
+    expect(isBookingOverlapError(failures[0].reason)).toBe(false);
+  });
+
+  it('recognises real transaction and pool timeouts', async () => {
+    const url = new URL(process.env.DATABASE_URL ?? '');
+    url.searchParams.set('connection_limit', '1');
+    url.searchParams.set('pool_timeout', '1');
+
+    const client = new PrismaClient({
+      datasources: { db: { url: url.toString() } },
+    });
+
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1`;
+
+        const transactionError = await client
+          .$transaction((second) => second.$queryRaw`SELECT 1`, {
+            maxWait: 100,
+          })
+          .catch((error: unknown) => error);
+        const poolError = await client.room
+          .count()
+          .catch((error: unknown) => error);
+
+        expect(isDatabaseBusyError(transactionError)).toBe(true);
+        expect(isDatabaseBusyError(poolError)).toBe(true);
+      });
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

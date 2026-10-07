@@ -7,6 +7,10 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import {
+  DATABASE_BUSY_MESSAGE,
+  isDatabaseBusyError,
+} from '../database-busy.error.js';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -39,6 +43,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (this.isClientError(exception)) {
       status = exception.statusCode;
       message = exception.message;
+    } else if (isDatabaseBusyError(exception)) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      message = DATABASE_BUSY_MESSAGE;
+      this.logger.warn(`Database is busy on ${request.method} ${request.url}`);
     } else {
       this.logger.error(
         `Unhandled exception on ${request.method} ${request.url}`,

@@ -66,7 +66,10 @@ The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSW
 ## Tests
 
 ```bash
+# unit tests
 npm test
+
+# e2e tests, need a running database
 npm run test:e2e
 ```
 
@@ -154,7 +157,7 @@ Two confirmed bookings of one room must never overlap, even when requests arrive
 | Transaction with `SELECT ... FOR UPDATE` on the room row | 1 created, 19 rejected with 409 |
 | Exclusion constraint in the database | 1 created, 19 rejected with 409 |
 
-The final version uses the exclusion constraint:
+The row lock version is kept in the `stage-4-for-update-variant` branch. The final version uses the exclusion constraint:
 
 ```sql
 ALTER TABLE "bookings" ADD CONSTRAINT "bookings_no_overlap"
@@ -167,9 +170,27 @@ ALTER TABLE "bookings" ADD CONSTRAINT "bookings_no_overlap"
 - The constraint covers only `CONFIRMED` rows, so a cancelled booking frees its slot.
 - An update is checked by the same constraint, so `PATCH /bookings/:id` needs no separate overlap query.
 
-Trade-off: parallel inserts for the same slot wait for each other, and PostgreSQL may resolve this as a deadlock after `deadlock_timeout` (1 second by default). The service maps both the constraint violation (`23P01`) and the deadlock (`40P01`) to 409, so under such contention a rejected request can take about a second. The row lock answers faster in this case.
+Prisma cannot describe exclusion or `CHECK` constraints in `schema.prisma`, so they are written by hand in the migration SQL. `npx prisma migrate dev` does not see them: it reports `Already in sync` and does not generate a migration that drops them. `startsAt` and `endsAt` are `timestamptz`, and the API accepts only ISO 8601 values with an explicit timezone.
 
-Prisma cannot describe exclusion or `CHECK` constraints in `schema.prisma`, so they are written by hand in the migration SQL. `startsAt` and `endsAt` are `timestamptz`, and the API accepts only ISO 8601 values with an explicit timezone.
+### Room lock
+
+`POST /bookings` and a `PATCH /bookings/:id` that changes the time run in one transaction. It starts with `SELECT ... FOR UPDATE` on the room row, then checks the room and writes the booking.
+
+- The room check (`isActive`, `capacity`) and the write cannot be split by an admin update. Either the deactivation waits until the booking is committed, or the booking waits and then sees the room as inactive.
+- Requests for one room run one after another, so the constraint check never waits for a parallel insert. Without the lock, parallel inserts for the same slot wait for each other and PostgreSQL breaks the wait with deadlocks, one per `deadlock_timeout` (1 second). In a local run of 20 parallel requests the slowest answer took 19 seconds without the lock and 0.1 seconds with it.
+- The lock does not replace the constraint. The constraint is the guarantee: a write that skips the lock still cannot create an overlap.
+
+### Database errors
+
+| Error | Answer |
+| --- | --- |
+| Exclusion constraint violation (`23P01`) | 409 |
+| Deadlock (`40P01`) | The transaction is retried once, a second failure is answered with 409 |
+| Transaction or connection pool timeout (Prisma `P2028`, `P2024`) | 503 |
+
+Prisma has no error code for the first two, so they are recognised by the text of the error. Unit tests check both functions, and an e2e test triggers both errors in a real database, so a Prisma upgrade that changes the text fails the tests.
+
+Requests for one room wait in a queue inside Prisma transactions. A transaction waits up to 2 seconds for a connection (`maxWait`) and may run up to 5 seconds (`timeout`). Under a very large burst the last requests in the queue hit these limits. This is not a bug in the request, so the exception filter answers 503 `Server is busy, try again later` instead of 500, for every endpoint. In a local run with a pool of 2 connections, 2,500 parallel requests for one room gave about 2,200 bookings and 300 answers with 503.
 
 ### Booking indexes
 
