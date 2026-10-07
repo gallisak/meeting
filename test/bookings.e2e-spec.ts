@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
@@ -8,6 +9,7 @@ import {
   isBookingOverlapError,
   isDeadlockError,
 } from '../src/bookings/booking-overlap.error.js';
+import { isDatabaseBusyError } from '../src/common/database-busy.error.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -335,5 +337,35 @@ describe('Bookings (e2e)', () => {
     expect(failures).toHaveLength(1);
     expect(isDeadlockError(failures[0].reason)).toBe(true);
     expect(isBookingOverlapError(failures[0].reason)).toBe(false);
+  });
+
+  it('recognises real transaction and pool timeouts', async () => {
+    const url = new URL(process.env.DATABASE_URL ?? '');
+    url.searchParams.set('connection_limit', '1');
+    url.searchParams.set('pool_timeout', '1');
+
+    const client = new PrismaClient({
+      datasources: { db: { url: url.toString() } },
+    });
+
+    try {
+      await client.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT 1`;
+
+        const transactionError = await client
+          .$transaction((second) => second.$queryRaw`SELECT 1`, {
+            maxWait: 100,
+          })
+          .catch((error: unknown) => error);
+        const poolError = await client.room
+          .count()
+          .catch((error: unknown) => error);
+
+        expect(isDatabaseBusyError(transactionError)).toBe(true);
+        expect(isDatabaseBusyError(poolError)).toBe(true);
+      });
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

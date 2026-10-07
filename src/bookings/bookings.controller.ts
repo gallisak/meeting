@@ -19,6 +19,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -60,6 +61,10 @@ export class BookingsController {
   })
   @ApiConflictResponse({
     description: 'Room is not active or the slot is already booked',
+    type: ErrorResponseDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description: 'Server is busy, the request can be repeated',
     type: ErrorResponseDto,
   })
   create(@CurrentUser('id') userId: string, @Body() dto: CreateBookingDto) {
@@ -128,6 +133,10 @@ export class BookingsController {
   @ApiConflictResponse({
     description:
       'Booking is cancelled, room is not active or the slot is already booked',
+    type: ErrorResponseDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description: 'Server is busy, the request can be repeated',
     type: ErrorResponseDto,
   })
   update(

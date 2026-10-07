@@ -28,6 +28,8 @@ const INACTIVE_ROOM_MESSAGE = 'Room is not active and cannot be booked';
 
 type LockedRoom = { id: string; capacity: number; isActive: boolean };
 
+const BOOKING_TRANSACTION_OPTIONS = { maxWait: 2000, timeout: 5000 };
+
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 
@@ -70,7 +72,7 @@ export class BookingsService {
           },
           include: BOOKING_INCLUDE,
         });
-      }),
+      }, BOOKING_TRANSACTION_OPTIONS),
     );
   }
 
@@ -177,7 +179,7 @@ export class BookingsService {
             data: { title: dto.title, startsAt, endsAt },
             include: BOOKING_INCLUDE,
           });
-        }),
+        }, BOOKING_TRANSACTION_OPTIONS),
       );
     } catch (error) {
       if (
