@@ -55,6 +55,7 @@ The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSW
 | `src/users` | User lookups and `GET /users/me` |
 | `src/rooms` | Room creation, update, filters and pagination |
 | `src/equipment` | Equipment list and creation |
+| `src/bookings` | Booking creation, list, details and cancellation |
 | `src/health` | `GET /health` with a database check |
 | `src/prisma` | Prisma client as a global Nest provider |
 | `src/common` | Exception filter and shared DTOs |
