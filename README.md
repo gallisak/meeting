@@ -55,6 +55,7 @@ The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSW
 | `src/users` | User lookups and `GET /users/me` |
 | `src/rooms` | Room creation, update, filters and pagination |
 | `src/equipment` | Equipment list and creation |
+| `src/bookings` | Booking creation, update, cancellation, list and room availability |
 | `src/health` | `GET /health` with a database check |
 | `src/prisma` | Prisma client as a global Nest provider |
 | `src/common` | Exception filter and shared DTOs |
@@ -140,3 +141,76 @@ SELECT * FROM rooms WHERE capacity >= 90 AND floor = 7 ORDER BY "createdAt" DESC
 - **Filters are optional**: users can query by `floor` only, `capacity` only, or both together.
 - **Composite index limitations**: a composite index only works well when its first column is filtered. With a composite `(capacity, floor)` index on the same data, the floor-only query fell back to a full table scan (`Seq Scan`, 6.1 ms instead of 2.2 ms).
 - **PostgreSQL BitmapAnd**: two separate indexes cover each filter on its own, and PostgreSQL combines them with `BitmapAnd` when both filters are set.
+
+## Bookings
+
+### Double-booking protection
+
+Two confirmed bookings of one room must never overlap, even when requests arrive at the same time. Three versions were tried, each checked by an e2e test that sends 20 parallel requests for the same slot:
+
+| Version | Result of 20 parallel requests |
+| --- | --- |
+| `SELECT` for an overlap, then `INSERT` | 20 bookings created: every request passes the check before any of them inserts |
+| Transaction with `SELECT ... FOR UPDATE` on the room row | 1 created, 19 rejected with 409 |
+| Exclusion constraint in the database | 1 created, 19 rejected with 409 |
+
+The final version uses the exclusion constraint:
+
+```sql
+ALTER TABLE "bookings" ADD CONSTRAINT "bookings_no_overlap"
+  EXCLUDE USING gist ("roomId" WITH =, tstzrange("startsAt", "endsAt", '[)') WITH &&)
+  WHERE ("status" = 'CONFIRMED');
+```
+
+- The rule lives in the database, so it holds for every code path and for several API instances. The row lock only works while every write remembers to take it.
+- The range is half-open (`[)`), so 10:00–11:00 and 11:00–12:00 do not overlap.
+- The constraint covers only `CONFIRMED` rows, so a cancelled booking frees its slot.
+- An update is checked by the same constraint, so `PATCH /bookings/:id` needs no separate overlap query.
+
+Trade-off: parallel inserts for the same slot wait for each other, and PostgreSQL may resolve this as a deadlock after `deadlock_timeout` (1 second by default). The service maps both the constraint violation (`23P01`) and the deadlock (`40P01`) to 409, so under such contention a rejected request can take about a second. The row lock answers faster in this case.
+
+Prisma cannot describe exclusion or `CHECK` constraints in `schema.prisma`, so they are written by hand in the migration SQL. `startsAt` and `endsAt` are `timestamptz`, and the API accepts only ISO 8601 values with an explicit timezone.
+
+### Booking indexes
+
+Plans are from PostgreSQL 16 with 100,000 generated bookings (200 rooms, 1,000 users).
+
+1. **My bookings** (`bookings_userId_startsAt_idx`). Without this index the same query is a sequential scan, 9.1 ms.
+
+```text
+EXPLAIN ANALYZE
+SELECT * FROM bookings WHERE "userId" = 'u7' ORDER BY "startsAt", id LIMIT 10;
+
+ Limit  (cost=4.80..44.55 rows=10 width=93) (actual time=0.094..0.095 rows=10 loops=1)
+   ->  Incremental Sort  (cost=4.80..398.29 rows=99 width=93) (actual time=0.093..0.094 rows=10 loops=1)
+         Sort Key: "startsAt", id
+         Presorted Key: "startsAt"
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+         ->  Index Scan using "bookings_userId_startsAt_idx" on bookings  (cost=0.42..394.15 rows=99 width=93) (actual time=0.025..0.055 rows=11 loops=1)
+               Index Cond: ("userId" = 'u7'::text)
+ Planning Time: 0.618 ms
+ Execution Time: 0.130 ms
+```
+
+2. **Room and period filter, room availability** (`bookings_roomId_startsAt_endsAt_idx`):
+
+```text
+EXPLAIN ANALYZE
+SELECT * FROM bookings
+WHERE "roomId" = 'r7' AND "endsAt" > '2026-10-10 00:00+00' AND "startsAt" < '2026-10-11 00:00+00'
+ORDER BY "startsAt", id LIMIT 10;
+
+ Limit  (cost=4.64..41.57 rows=10 width=93) (actual time=0.071..0.072 rows=10 loops=1)
+   ->  Incremental Sort  (cost=4.64..506.93 rows=136 width=93) (actual time=0.071..0.072 rows=10 loops=1)
+         Sort Key: "startsAt", id
+         Presorted Key: "startsAt"
+         Full-sort Groups: 1  Sort Method: quicksort  Average Memory: 26kB  Peak Memory: 26kB
+         ->  Index Scan using "bookings_roomId_startsAt_endsAt_idx" on bookings  (cost=0.42..501.41 rows=136 width=93) (actual time=0.035..0.037 rows=11 loops=1)
+               Index Cond: (("roomId" = 'r7'::text) AND ("startsAt" < '2026-10-11 00:00:00+00'::timestamp with time zone) AND ("endsAt" > '2026-10-10 00:00:00+00'::timestamp with time zone))
+ Planning Time: 0.063 ms
+ Execution Time: 0.082 ms
+```
+
+The admin list without any filter has no matching index and runs as a sequential scan (9.2 ms on this data).
+
+The list loads room and user data through Prisma `include`, which runs a fixed number of queries per page regardless of the page size.

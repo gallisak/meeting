@@ -18,15 +18,15 @@ enum BookingStatus {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String
-  refreshTokenHash String? @map("refresh_token_hash")
-  name         String
-  role         Role      @default(MEMBER)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  bookings     Booking[]
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String
+  refreshTokenHash String?   @map("refresh_token_hash")
+  name             String
+  role             Role      @default(MEMBER)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  bookings         Booking[]
 
   @@map("users")
 }
@@ -60,8 +60,8 @@ model Room {
 model Booking {
   id             String        @id @default(uuid())
   title          String
-  startsAt       DateTime
-  endsAt         DateTime
+  startsAt       DateTime      @db.Timestamptz(3)
+  endsAt         DateTime      @db.Timestamptz(3)
   status         BookingStatus @default(CONFIRMED)
   attendeesCount Int
   createdAt      DateTime      @default(now())
@@ -72,5 +72,6 @@ model Booking {
   room           Room          @relation(fields: [roomId], references: [id], onDelete: Restrict)
 
   @@index([roomId, startsAt, endsAt])
+  @@index([userId, startsAt])
   @@map("bookings")
 }
