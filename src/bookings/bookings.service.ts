@@ -24,6 +24,9 @@ const BOOKING_INCLUDE = {
 } as const;
 
 const CANCELLED_BOOKING_MESSAGE = 'Cancelled booking cannot be changed';
+const INACTIVE_ROOM_MESSAGE = 'Room is not active and cannot be booked';
+
+type LockedRoom = { id: string; capacity: number; isActive: boolean };
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -38,36 +41,35 @@ export class BookingsService {
 
     assertValidBookingPeriod(startsAt, endsAt, new Date());
 
-    const room = await this.prisma.room.findUnique({
-      where: { id: dto.roomId },
-      select: { id: true, capacity: true, isActive: true },
-    });
-
-    if (!room) {
-      throw new NotFoundException(`Room id: "${dto.roomId}" not found`);
-    }
-
-    if (!room.isActive) {
-      throw new ConflictException('Room is not active and cannot be booked');
-    }
-
-    if (dto.attendeesCount > room.capacity) {
-      throw new BadRequestException(
-        `attendeesCount must not exceed room capacity (${room.capacity})`,
-      );
-    }
-
     return this.writeBooking(() =>
-      this.prisma.booking.create({
-        data: {
-          title: dto.title,
-          startsAt,
-          endsAt,
-          attendeesCount: dto.attendeesCount,
-          userId,
-          roomId: room.id,
-        },
-        include: BOOKING_INCLUDE,
+      this.prisma.$transaction(async (tx) => {
+        const room = await this.lockRoom(tx, dto.roomId);
+
+        if (!room) {
+          throw new NotFoundException(`Room id: "${dto.roomId}" not found`);
+        }
+
+        if (!room.isActive) {
+          throw new ConflictException(INACTIVE_ROOM_MESSAGE);
+        }
+
+        if (dto.attendeesCount > room.capacity) {
+          throw new BadRequestException(
+            `attendeesCount must not exceed room capacity (${room.capacity})`,
+          );
+        }
+
+        return tx.booking.create({
+          data: {
+            title: dto.title,
+            startsAt,
+            endsAt,
+            attendeesCount: dto.attendeesCount,
+            userId,
+            roomId: room.id,
+          },
+          include: BOOKING_INCLUDE,
+        });
       }),
     );
   }
@@ -157,23 +159,24 @@ export class BookingsService {
 
     if (periodChanged) {
       assertValidBookingPeriod(startsAt, endsAt, new Date());
-
-      const room = await this.prisma.room.findUnique({
-        where: { id: booking.roomId },
-        select: { isActive: true },
-      });
-
-      if (!room?.isActive) {
-        throw new ConflictException('Room is not active and cannot be booked');
-      }
     }
 
     try {
       return await this.writeBooking(() =>
-        this.prisma.booking.update({
-          where: { id, status: BookingStatus.CONFIRMED },
-          data: { title: dto.title, startsAt, endsAt },
-          include: BOOKING_INCLUDE,
+        this.prisma.$transaction(async (tx) => {
+          if (periodChanged) {
+            const room = await this.lockRoom(tx, booking.roomId);
+
+            if (!room?.isActive) {
+              throw new ConflictException(INACTIVE_ROOM_MESSAGE);
+            }
+          }
+
+          return tx.booking.update({
+            where: { id, status: BookingStatus.CONFIRMED },
+            data: { title: dto.title, startsAt, endsAt },
+            include: BOOKING_INCLUDE,
+          });
         }),
       );
     } catch (error) {
@@ -234,14 +237,35 @@ export class BookingsService {
     return { roomId, date, slots: findFreeSlots(from, dayEnd, bookings) };
   }
 
+  private async lockRoom(tx: Prisma.TransactionClient, roomId: string) {
+    const rooms = await tx.$queryRaw<LockedRoom[]>`
+      SELECT "id", "capacity", "isActive" FROM "rooms"
+      WHERE "id" = ${roomId}
+      FOR UPDATE
+    `;
+
+    return rooms[0];
+  }
+
   private async writeBooking<T>(write: () => Promise<T>): Promise<T> {
     try {
-      return await write();
+      return await this.retryOnDeadlock(write);
     } catch (error) {
       if (isBookingOverlapError(error) || isDeadlockError(error)) {
         throw new ConflictException(BOOKING_OVERLAP_MESSAGE);
       }
       throw error;
+    }
+  }
+
+  private async retryOnDeadlock<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write();
+    } catch (error) {
+      if (!isDeadlockError(error)) {
+        throw error;
+      }
+      return write();
     }
   }
 }
