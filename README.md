@@ -89,6 +89,7 @@ E2E files share this database, so they run one after another (`fileParallelism: 
 | `src/bookings/booking-overlap.error.spec.ts`, `src/common/*.spec.ts` | Recognition of database errors, request logging |
 | `test/auth.e2e-spec.ts` | Registration, login, refresh rotation, logout, profile, roles |
 | `test/bookings.e2e-spec.ts` | Full booking cycle against a real database, 20 parallel requests for one slot, room lock |
+| `test/rooms.e2e-spec.ts` | Room list filters (floor, capacity, equipment, activity), pagination, room details, creation and update of rooms, unknown equipment, equipment list |
 | `test/app.e2e-spec.ts` | Health check, global guard, request id |
 
 ## Logs
