@@ -9,7 +9,7 @@ import {
   isBookingOverlapError,
   isDeadlockError,
 } from '../src/bookings/booking-overlap.error.js';
-import { isDatabaseBusyError } from '../src/common/database-busy.error.js';
+import { isDatabaseUnavailableError } from '../src/common/database-unavailable.error.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -353,8 +353,8 @@ describe('Bookings (e2e)', () => {
           .count()
           .catch((error: unknown) => error);
 
-        expect(isDatabaseBusyError(transactionError)).toBe(true);
-        expect(isDatabaseBusyError(poolError)).toBe(true);
+        expect(isDatabaseUnavailableError(transactionError)).toBe(true);
+        expect(isDatabaseUnavailableError(poolError)).toBe(true);
       });
     } finally {
       await client.$disconnect();

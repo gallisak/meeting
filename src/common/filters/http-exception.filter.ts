@@ -8,9 +8,9 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import {
-  DATABASE_BUSY_MESSAGE,
-  isDatabaseBusyError,
-} from '../database-busy.error.js';
+  DATABASE_UNAVAILABLE_MESSAGE,
+  isDatabaseUnavailableError,
+} from '../database-unavailable.error.js';
 import { REQUEST_ID_HEADER } from '../middleware/request-logger.middleware.js';
 
 @Catch()
@@ -42,10 +42,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (this.isClientError(exception)) {
       status = exception.statusCode;
       message = exception.message;
-    } else if (isDatabaseBusyError(exception)) {
+    } else if (isDatabaseUnavailableError(exception)) {
       status = HttpStatus.SERVICE_UNAVAILABLE;
-      message = DATABASE_BUSY_MESSAGE;
-      this.logger.warn(`Database is busy on ${where}`);
+      message = DATABASE_UNAVAILABLE_MESSAGE;
+      this.logger.error(
+        `Database is unavailable on ${where}`,
+        exception instanceof Error ? exception.message : String(exception),
+      );
     } else {
       this.logger.error(
         `Unhandled exception on ${where}`,

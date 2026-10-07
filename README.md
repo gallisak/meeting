@@ -228,10 +228,11 @@ Prisma cannot describe exclusion or `CHECK` constraints in `schema.prisma`, so t
 | Exclusion constraint violation (`23P01`) | 409 |
 | Deadlock (`40P01`) | The transaction is retried once, a second failure is answered with 409 |
 | Transaction or connection pool timeout (Prisma `P2028`, `P2024`) | 503 |
+| Database unreachable or connection closed (Prisma `P1001`, `P1017`) | 503 |
 
 Prisma has no error code for the first two, so they are recognised by the text of the error. Unit tests check both functions, and an e2e test triggers both errors in a real database, so a Prisma upgrade that changes the text fails the tests.
 
-Requests for one room wait in a queue inside Prisma transactions. A transaction waits up to 2 seconds for a connection (`maxWait`) and may run up to 5 seconds (`timeout`). Under a very large burst the last requests in the queue hit these limits. This is not a bug in the request, so the exception filter answers 503 `Server is busy, try again later` instead of 500, for every endpoint. In a local run with a pool of 2 connections, 2,500 parallel requests for one room gave about 2,200 bookings and 300 answers with 503.
+Requests for one room wait in a queue inside Prisma transactions. A transaction waits up to 2 seconds for a connection (`maxWait`) and may run up to 5 seconds (`timeout`). Under a very large burst the last requests in the queue hit these limits. This is not a bug in the request, so the exception filter answers 503 `Service is temporarily unavailable, try again later` instead of 500, for every endpoint. The same answer is given while the database is down; the API keeps running and works again when the database is back. In a local run with a pool of 2 connections, 2,500 parallel requests for one room gave about 2,200 bookings and 300 answers with 503.
 
 ### Booking indexes
 
