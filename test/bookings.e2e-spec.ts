@@ -26,7 +26,7 @@ describe('Bookings (e2e)', () => {
   let inactiveRoomId: string;
   let ownerId: string;
 
-  const emails = ['owner@test.local', 'other@test.local'];
+  const emails = ['owner@bookings.local', 'other@bookings.local'];
   const baseDay = Math.floor(Date.now() / DAY) * DAY + 7 * DAY;
 
   const slot = (day: number, startHour: number, endHour: number) => ({
@@ -62,11 +62,11 @@ describe('Bookings (e2e)', () => {
     prisma = app.get(PrismaService);
 
     const room = await prisma.room.create({
-      data: { name: 'Test room', capacity: 4, floor: 1 },
+      data: { name: 'Bookings room', capacity: 4, floor: 1 },
     });
     const inactiveRoom = await prisma.room.create({
       data: {
-        name: 'Inactive test room',
+        name: 'Bookings inactive room',
         capacity: 4,
         floor: 1,
         isActive: false,
@@ -254,7 +254,7 @@ describe('Bookings (e2e)', () => {
 
   it('does not book a room deactivated while the request waits', async () => {
     const room = await prisma.room.create({
-      data: { name: 'Locked test room', capacity: 4, floor: 1 },
+      data: { name: 'Bookings locked room', capacity: 4, floor: 1 },
     });
 
     let status: number | undefined;

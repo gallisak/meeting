@@ -80,6 +80,8 @@ npm run test:e2e
 
 E2E tests need a running PostgreSQL (`docker compose up postgres -d`) and never touch the development database. Before every run `test/global-setup.ts` drops the database from `TEST_DATABASE_URL`, creates it again and applies all migrations, so each run starts from an empty schema. The name of the test database must end with `_test`, otherwise the run stops before anything is dropped.
 
+E2E files share this database, so they run one after another (`fileParallelism: false`) and each file uses its own email domain, room names and floors. A file never depends on data created by another file.
+
 | Tests | What they cover |
 | --- | --- |
 | `src/bookings/booking-rules.spec.ts` | Period rules (order, 15 minutes to 8 hours, not in the past) and free slot calculation |
