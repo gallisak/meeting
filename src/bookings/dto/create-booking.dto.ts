@@ -14,9 +14,10 @@ import {
 import { Trim } from '../../common/transforms/trim.transform.js';
 import { MAX_ROOM_CAPACITY } from '../../rooms/dto/create-room.dto.js';
 
-export const ISO_WITH_TIMEZONE = /(Z|[+-]\d{2}:\d{2})$/;
+export const ISO_WITH_TIMEZONE =
+  /^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
 export const ISO_WITH_TIMEZONE_MESSAGE =
-  'must include a time and a timezone, for example 2026-10-20T10:00:00Z';
+  'must look like 2026-10-20T10:00:00Z or 2026-10-20T10:00:00+03:00';
 
 export class CreateBookingDto {
   @ApiProperty({ example: '7b1f6c1e-3d0a-4a53-9a5e-2f4f3f1f0c11' })

@@ -113,6 +113,14 @@ describe('Bookings (e2e)', () => {
       startsAt: '2030-01-01T10:00:00',
       endsAt: '2030-01-01T11:00:00',
     }).expect(400);
+    await book(ownerToken, {
+      startsAt: '2030-W01-2T10:00:00Z',
+      endsAt: '2030-W01-2T11:00:00Z',
+    }).expect(400);
+    await book(ownerToken, {
+      startsAt: '9999-12-31T23:00:00-05:00',
+      endsAt: '9999-12-31T23:30:00-05:00',
+    }).expect(400);
   });
 
   it('rejects more attendees than the room capacity', () => {
@@ -170,20 +178,69 @@ describe('Bookings (e2e)', () => {
     await book(otherToken, slot(6, 10, 11)).expect(201);
   });
 
-  it.fails(
-    'creates exactly one booking out of 20 parallel requests',
-    async () => {
-      for (const hour of [8, 10, 12, 14, 16]) {
-        const responses = await Promise.all(
-          Array.from({ length: 20 }, () =>
-            book(ownerToken, slot(7, hour, hour + 1)),
-          ),
-        );
-        const statuses = responses.map((res) => res.status);
+  it('updates a booking and rechecks the overlap', async () => {
+    const first = await book(ownerToken, slot(8, 10, 11)).expect(201);
+    await book(otherToken, slot(8, 12, 13)).expect(201);
 
-        expect(statuses.filter((status) => status === 201)).toHaveLength(1);
-        expect(statuses.filter((status) => status === 409)).toHaveLength(19);
-      }
-    },
-  );
+    const patch = (token: string, body: Record<string, unknown>) =>
+      request(app.getHttpServer())
+        .patch(`/bookings/${first.body.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body);
+
+    const renamed = await patch(ownerToken, { title: 'Renamed' }).expect(200);
+    expect(renamed.body.title).toBe('Renamed');
+    expect(renamed.body.startsAt).toBe(first.body.startsAt);
+
+    await patch(ownerToken, slot(8, 10.5, 11.5)).expect(200);
+    await patch(ownerToken, slot(8, 11.5, 12.5)).expect(409);
+    await patch(ownerToken, slot(8, 11, 20)).expect(400);
+    await patch(ownerToken, { roomId }).expect(400);
+    await patch(otherToken, { title: 'Stolen' }).expect(403);
+
+    await request(app.getHttpServer())
+      .post(`/bookings/${first.body.id}/cancel`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .expect(200);
+    await patch(ownerToken, { title: 'Too late' }).expect(409);
+  });
+
+  it('returns free slots of a room for a day', async () => {
+    await book(ownerToken, slot(9, 10, 11)).expect(201);
+    await book(ownerToken, slot(9, 13, 14)).expect(201);
+
+    const date = slot(9, 0, 1).startsAt.slice(0, 10);
+    const availability = (id: string, query: Record<string, string>) =>
+      request(app.getHttpServer())
+        .get(`/rooms/${id}/availability`)
+        .query(query)
+        .set('Authorization', `Bearer ${ownerToken}`);
+
+    const res = await availability(roomId, { date }).expect(200);
+
+    expect(res.body.slots).toEqual([
+      slot(9, 0, 10),
+      slot(9, 11, 13),
+      slot(9, 14, 24),
+    ]);
+
+    const inactive = await availability(inactiveRoomId, { date }).expect(200);
+    expect(inactive.body.slots).toEqual([]);
+
+    await availability(roomId, { date: '2020-01-01' }).expect(200);
+    await availability(roomId, { date: 'tomorrow' }).expect(400);
+    await availability(roomId, { date: '9999-12-31' }).expect(400);
+    await availability(roomId, {}).expect(400);
+    await availability(randomUUID(), { date }).expect(404);
+  });
+
+  it('creates exactly one booking out of 20 parallel requests', async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 20 }, () => book(ownerToken, slot(7, 10, 11))),
+    );
+    const statuses = responses.map((res) => res.status);
+
+    expect(statuses.filter((status) => status === 201)).toHaveLength(1);
+    expect(statuses.filter((status) => status === 409)).toHaveLength(19);
+  });
 });

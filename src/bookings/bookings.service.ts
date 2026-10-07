@@ -8,14 +8,25 @@ import {
 import { BookingStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SafeUser } from '../users/users.service.js';
-import { assertValidBookingPeriod } from './booking-rules.js';
+import {
+  BOOKING_OVERLAP_MESSAGE,
+  isBookingOverlapError,
+  isDeadlockError,
+} from './booking-overlap.error.js';
+import { assertValidBookingPeriod, findFreeSlots } from './booking-rules.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
 import { QueryBookingsDto } from './dto/query-bookings.dto.js';
+import { UpdateBookingDto } from './dto/update-booking.dto.js';
 
 const BOOKING_INCLUDE = {
   room: { select: { id: true, name: true, floor: true, capacity: true } },
   user: { select: { id: true, email: true, name: true } },
 } as const;
+
+const CANCELLED_BOOKING_MESSAGE = 'Cancelled booking cannot be changed';
+
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 
 @Injectable()
 export class BookingsService {
@@ -46,31 +57,19 @@ export class BookingsService {
       );
     }
 
-    const overlapping = await this.prisma.booking.findFirst({
-      where: {
-        roomId: room.id,
-        status: BookingStatus.CONFIRMED,
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
-      },
-      select: { id: true },
-    });
-
-    if (overlapping) {
-      throw new ConflictException('Room is already booked for this time');
-    }
-
-    return this.prisma.booking.create({
-      data: {
-        title: dto.title,
-        startsAt,
-        endsAt,
-        attendeesCount: dto.attendeesCount,
-        userId,
-        roomId: room.id,
-      },
-      include: BOOKING_INCLUDE,
-    });
+    return this.writeBooking(() =>
+      this.prisma.booking.create({
+        data: {
+          title: dto.title,
+          startsAt,
+          endsAt,
+          attendeesCount: dto.attendeesCount,
+          userId,
+          roomId: room.id,
+        },
+        include: BOOKING_INCLUDE,
+      }),
+    );
   }
 
   async findAll(user: SafeUser, query: QueryBookingsDto) {
@@ -142,6 +141,52 @@ export class BookingsService {
     return booking;
   }
 
+  async update(user: SafeUser, id: string, dto: UpdateBookingDto) {
+    const booking = await this.findOne(user, id);
+
+    if (booking.status === BookingStatus.CANCELLED) {
+      throw new ConflictException(CANCELLED_BOOKING_MESSAGE);
+    }
+
+    const startsAt = dto.startsAt ? new Date(dto.startsAt) : booking.startsAt;
+    const endsAt = dto.endsAt ? new Date(dto.endsAt) : booking.endsAt;
+
+    const periodChanged =
+      startsAt.getTime() !== booking.startsAt.getTime() ||
+      endsAt.getTime() !== booking.endsAt.getTime();
+
+    if (periodChanged) {
+      assertValidBookingPeriod(startsAt, endsAt, new Date());
+
+      const room = await this.prisma.room.findUnique({
+        where: { id: booking.roomId },
+        select: { isActive: true },
+      });
+
+      if (!room?.isActive) {
+        throw new ConflictException('Room is not active and cannot be booked');
+      }
+    }
+
+    try {
+      return await this.writeBooking(() =>
+        this.prisma.booking.update({
+          where: { id, status: BookingStatus.CONFIRMED },
+          data: { title: dto.title, startsAt, endsAt },
+          include: BOOKING_INCLUDE,
+        }),
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new ConflictException(CANCELLED_BOOKING_MESSAGE);
+      }
+      throw error;
+    }
+  }
+
   async cancel(user: SafeUser, id: string) {
     const booking = await this.findOne(user, id);
 
@@ -154,5 +199,49 @@ export class BookingsService {
       data: { status: BookingStatus.CANCELLED },
       include: BOOKING_INCLUDE,
     });
+  }
+
+  async getAvailability(roomId: string, date: string) {
+    const room = await this.prisma.room.findUnique({
+      where: { id: roomId },
+      select: { id: true, isActive: true },
+    });
+
+    if (!room) {
+      throw new NotFoundException(`Room id: "${roomId}" not found`);
+    }
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd = new Date(dayStart.getTime() + DAY_MS);
+    const nextMinute = new Date(Math.ceil(Date.now() / MINUTE_MS) * MINUTE_MS);
+    const from = dayStart > nextMinute ? dayStart : nextMinute;
+
+    if (!room.isActive || from >= dayEnd) {
+      return { roomId, date, slots: [] };
+    }
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        roomId,
+        status: BookingStatus.CONFIRMED,
+        startsAt: { lt: dayEnd },
+        endsAt: { gt: from },
+      },
+      orderBy: { startsAt: 'asc' },
+      select: { startsAt: true, endsAt: true },
+    });
+
+    return { roomId, date, slots: findFreeSlots(from, dayEnd, bookings) };
+  }
+
+  private async writeBooking<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write();
+    } catch (error) {
+      if (isBookingOverlapError(error) || isDeadlockError(error)) {
+        throw new ConflictException(BOOKING_OVERLAP_MESSAGE);
+      }
+      throw error;
+    }
   }
 }

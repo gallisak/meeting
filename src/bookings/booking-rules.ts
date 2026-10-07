@@ -26,3 +26,29 @@ export function assertValidBookingPeriod(
     throw new BadRequestException('Booking must not start in the past');
   }
 }
+
+export type TimeSlot = { startsAt: Date; endsAt: Date };
+
+export function findFreeSlots(
+  from: Date,
+  to: Date,
+  busySlots: TimeSlot[],
+): TimeSlot[] {
+  const freeSlots: TimeSlot[] = [];
+  let cursor = from;
+
+  for (const busy of busySlots) {
+    if (busy.startsAt.getTime() - cursor.getTime() >= MIN_BOOKING_DURATION_MS) {
+      freeSlots.push({ startsAt: cursor, endsAt: busy.startsAt });
+    }
+    if (busy.endsAt > cursor) {
+      cursor = busy.endsAt;
+    }
+  }
+
+  if (to.getTime() - cursor.getTime() >= MIN_BOOKING_DURATION_MS) {
+    freeSlots.push({ startsAt: cursor, endsAt: to });
+  }
+
+  return freeSlots;
+}

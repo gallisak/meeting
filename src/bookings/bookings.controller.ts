@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ import {
 } from './dto/booking-response.dto.js';
 import { CreateBookingDto } from './dto/create-booking.dto.js';
 import { QueryBookingsDto } from './dto/query-bookings.dto.js';
+import { UpdateBookingDto } from './dto/update-booking.dto.js';
 
 @ApiTags('Bookings')
 @ApiBearerAuth()
@@ -103,6 +105,37 @@ export class BookingsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.bookingsService.findOne(user, id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Change booking title or time (owner or admin)' })
+  @ApiOkResponse({
+    description: 'Booking successfully updated',
+    type: BookingResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Validation failed or a booking rule is violated',
+    type: ErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Forbidden: not the booking owner',
+    type: ErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Booking not found',
+    type: ErrorResponseDto,
+  })
+  @ApiConflictResponse({
+    description:
+      'Booking is cancelled, room is not active or the slot is already booked',
+    type: ErrorResponseDto,
+  })
+  update(
+    @CurrentUser() user: SafeUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateBookingDto,
+  ) {
+    return this.bookingsService.update(user, id, dto);
   }
 
   @Post(':id/cancel')
