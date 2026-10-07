@@ -32,7 +32,7 @@ describe('Auth (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: ['error'] });
     setupApp(app);
     await app.init();
     await app.listen(0);

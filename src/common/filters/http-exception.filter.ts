@@ -11,6 +11,7 @@ import {
   DATABASE_BUSY_MESSAGE,
   isDatabaseBusyError,
 } from '../database-busy.error.js';
+import { REQUEST_ID_HEADER } from '../middleware/request-logger.middleware.js';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -20,6 +21,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
+    const where = `${request.method} ${request.url}, request ${String(response.getHeader(REQUEST_ID_HEADER))}`;
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | object = 'Internal server error';
@@ -35,10 +37,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       }
 
       if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
-        this.logger.error(
-          `HTTP ${status} on ${request.method} ${request.url}`,
-          exception.stack,
-        );
+        this.logger.error(`HTTP ${status} on ${where}`, exception.stack);
       }
     } else if (this.isClientError(exception)) {
       status = exception.statusCode;
@@ -46,10 +45,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     } else if (isDatabaseBusyError(exception)) {
       status = HttpStatus.SERVICE_UNAVAILABLE;
       message = DATABASE_BUSY_MESSAGE;
-      this.logger.warn(`Database is busy on ${request.method} ${request.url}`);
+      this.logger.warn(`Database is busy on ${where}`);
     } else {
       this.logger.error(
-        `Unhandled exception on ${request.method} ${request.url}`,
+        `Unhandled exception on ${where}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
