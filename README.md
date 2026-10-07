@@ -15,6 +15,7 @@ cp .env.example .env
 | `NODE_ENV` | `development`, `production` or `test` |
 | `PORT` | API port (default: `3000`) |
 | `DATABASE_URL` | PostgreSQL connection string |
+| `TEST_DATABASE_URL` | Database for e2e tests, recreated on every run; the name must end with `_test` |
 | `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES_IN` | Access token secret and lifetime |
 | `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES_IN` | Refresh token secret and lifetime |
 | `RUN_SEED` | Set to `true` to run seed on container startup (default: `false`) |
@@ -69,9 +70,11 @@ The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSW
 # unit tests
 npm test
 
-# e2e tests, need a running database
+# e2e tests, need a running PostgreSQL (docker compose up postgres -d)
 npm run test:e2e
 ```
+
+E2E tests never touch the development database. Before every run `test/global-setup.ts` drops the database from `TEST_DATABASE_URL`, creates it again and applies all migrations, so each run starts from an empty schema. The name of the test database must end with `_test`, otherwise the run stops before anything is dropped.
 
 ## Room Filter Indexes
 
