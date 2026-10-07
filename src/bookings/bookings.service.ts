@@ -17,6 +17,8 @@ const BOOKING_INCLUDE = {
   user: { select: { id: true, email: true, name: true } },
 } as const;
 
+type LockedRoom = { id: string; capacity: number; isActive: boolean };
+
 @Injectable()
 export class BookingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -27,49 +29,53 @@ export class BookingsService {
 
     assertValidBookingPeriod(startsAt, endsAt, new Date());
 
-    const room = await this.prisma.room.findUnique({
-      where: { id: dto.roomId },
-      select: { id: true, capacity: true, isActive: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const rooms = await tx.$queryRaw<LockedRoom[]>`
+        SELECT "id", "capacity", "isActive" FROM "rooms"
+        WHERE "id" = ${dto.roomId}
+        FOR UPDATE
+      `;
+      const room = rooms[0];
 
-    if (!room) {
-      throw new NotFoundException(`Room id: "${dto.roomId}" not found`);
-    }
+      if (!room) {
+        throw new NotFoundException(`Room id: "${dto.roomId}" not found`);
+      }
 
-    if (!room.isActive) {
-      throw new ConflictException('Room is not active and cannot be booked');
-    }
+      if (!room.isActive) {
+        throw new ConflictException('Room is not active and cannot be booked');
+      }
 
-    if (dto.attendeesCount > room.capacity) {
-      throw new BadRequestException(
-        `attendeesCount must not exceed room capacity (${room.capacity})`,
-      );
-    }
+      if (dto.attendeesCount > room.capacity) {
+        throw new BadRequestException(
+          `attendeesCount must not exceed room capacity (${room.capacity})`,
+        );
+      }
 
-    const overlapping = await this.prisma.booking.findFirst({
-      where: {
-        roomId: room.id,
-        status: BookingStatus.CONFIRMED,
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
-      },
-      select: { id: true },
-    });
+      const overlapping = await tx.booking.findFirst({
+        where: {
+          roomId: room.id,
+          status: BookingStatus.CONFIRMED,
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { id: true },
+      });
 
-    if (overlapping) {
-      throw new ConflictException('Room is already booked for this time');
-    }
+      if (overlapping) {
+        throw new ConflictException('Room is already booked for this time');
+      }
 
-    return this.prisma.booking.create({
-      data: {
-        title: dto.title,
-        startsAt,
-        endsAt,
-        attendeesCount: dto.attendeesCount,
-        userId,
-        roomId: room.id,
-      },
-      include: BOOKING_INCLUDE,
+      return tx.booking.create({
+        data: {
+          title: dto.title,
+          startsAt,
+          endsAt,
+          attendeesCount: dto.attendeesCount,
+          userId,
+          roomId: room.id,
+        },
+        include: BOOKING_INCLUDE,
+      });
     });
   }
 

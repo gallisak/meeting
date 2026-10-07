@@ -170,20 +170,17 @@ describe('Bookings (e2e)', () => {
     await book(otherToken, slot(6, 10, 11)).expect(201);
   });
 
-  it.fails(
-    'creates exactly one booking out of 20 parallel requests',
-    async () => {
-      for (const hour of [8, 10, 12, 14, 16]) {
-        const responses = await Promise.all(
-          Array.from({ length: 20 }, () =>
-            book(ownerToken, slot(7, hour, hour + 1)),
-          ),
-        );
-        const statuses = responses.map((res) => res.status);
+  it('creates exactly one booking out of 20 parallel requests', async () => {
+    for (const hour of [8, 10, 12, 14, 16]) {
+      const responses = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          book(ownerToken, slot(7, hour, hour + 1)),
+        ),
+      );
+      const statuses = responses.map((res) => res.status);
 
-        expect(statuses.filter((status) => status === 201)).toHaveLength(1);
-        expect(statuses.filter((status) => status === 409)).toHaveLength(19);
-      }
-    },
-  );
+      expect(statuses.filter((status) => status === 201)).toHaveLength(1);
+      expect(statuses.filter((status) => status === 409)).toHaveLength(19);
+    }
+  });
 });
