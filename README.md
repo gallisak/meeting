@@ -59,22 +59,60 @@ The seed creates the administrator from `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSW
 | `src/bookings` | Booking creation, update, cancellation, list and room availability |
 | `src/health` | `GET /health` with a database check |
 | `src/prisma` | Prisma client as a global Nest provider |
-| `src/common` | Exception filter and shared DTOs |
+| `src/common` | Exception filter, request logging middleware and shared DTOs |
 | `src/config` | Environment validation |
-| `src/app.setup.ts` | Global `ValidationPipe` and exception filter, shared by `main.ts` and e2e tests |
+| `src/app.setup.ts` | Request logger, global `ValidationPipe` and exception filter, shared by `main.ts` and e2e tests |
 | `prisma` | Schema, migrations and seed |
+| `test` | E2E tests and the test database setup |
 
 ## Tests
 
 ```bash
-# unit tests
+# everything: unit tests, then e2e tests
+npm run test:all
+
+# unit tests only, no database needed
 npm test
 
-# e2e tests, need a running PostgreSQL (docker compose up postgres -d)
+# e2e tests only
 npm run test:e2e
 ```
 
-E2E tests never touch the development database. Before every run `test/global-setup.ts` drops the database from `TEST_DATABASE_URL`, creates it again and applies all migrations, so each run starts from an empty schema. The name of the test database must end with `_test`, otherwise the run stops before anything is dropped.
+E2E tests need a running PostgreSQL (`docker compose up postgres -d`) and never touch the development database. Before every run `test/global-setup.ts` drops the database from `TEST_DATABASE_URL`, creates it again and applies all migrations, so each run starts from an empty schema. The name of the test database must end with `_test`, otherwise the run stops before anything is dropped.
+
+| Tests | What they cover |
+| --- | --- |
+| `src/bookings/booking-rules.spec.ts` | Period rules (order, 15 minutes to 8 hours, not in the past) and free slot calculation |
+| `src/bookings/bookings.service.spec.ts` | Every booking rule in the service with a mocked database: capacity, inactive room, ownership, cancellation, filters, retry on a deadlock |
+| `src/bookings/booking-overlap.error.spec.ts`, `src/common/*.spec.ts` | Recognition of database errors, request logging |
+| `test/auth.e2e-spec.ts` | Registration, login, refresh rotation, logout, profile, roles |
+| `test/bookings.e2e-spec.ts` | Full booking cycle against a real database, 20 parallel requests for one slot, room lock |
+| `test/app.e2e-spec.ts` | Health check, global guard, request id |
+
+## Logs
+
+Every request is logged once, when the response is sent: request id, method, path, status code, duration and the user id when the request is authenticated. Request bodies, tokens and query strings are not logged.
+
+- With `NODE_ENV=production` (the Docker setup) each entry is one line of JSON. In development the same data is printed as text.
+- 4xx answers are logged as `warn`, 5xx as `error`.
+- The request id comes from the `x-request-id` header or is generated, and is returned in the same response header. Error entries of the exception filter carry the same id, so one failed request can be found by it.
+- The entry is written by a middleware, not an interceptor: guards run before interceptors, so an interceptor would miss every request rejected with 401 or 403. The middleware is registered before the body parser, so requests with a broken or too large body are logged too.
+
+```json
+{"level":"log","pid":1,"timestamp":1791380546010,"message":{"message":"request completed","requestId":"c1c3bcba-7589-457c-ac14-84f32508213a","method":"GET","path":"/users/me","statusCode":200,"durationMs":4,"userId":"b8500295-3e6e-4b10-91e4-63a639fd60db"},"context":"HTTP"}
+```
+
+## Schema Decisions
+
+- **Identifiers** are UUIDs, so an id does not reveal how many records exist and cannot be guessed by counting.
+- **`users.email`, `rooms.name`, `equipments.name`** are unique in the database, not only checked in code.
+- **Role and booking status** are PostgreSQL enums (`ADMIN`/`MEMBER`, `CONFIRMED`/`CANCELLED`), so a wrong value cannot be stored.
+- **Room and equipment** are linked many-to-many through an implicit Prisma join table.
+- **A booking is never deleted.** Cancellation changes the status, and the foreign keys to user and room use `ON DELETE RESTRICT`, so history cannot disappear with a deleted room or user. A room is switched off with `isActive` instead of being deleted.
+- **`startsAt` and `endsAt`** are `timestamptz`: time is stored as a moment in UTC and works with `tstzrange` in the exclusion constraint.
+- **Booking rules that must always hold** live in the database: no overlap of confirmed bookings (exclusion constraint), `endsAt > startsAt` and `attendeesCount >= 1` (`CHECK`).
+- **The refresh token** is stored only as a SHA-256 hash in `users.refresh_token_hash`. One hash per user means one active session: a new login replaces the previous refresh token.
+- **Indexes** are listed with their `EXPLAIN ANALYZE` plans in the two sections below.
 
 ## Room Filter Indexes
 
