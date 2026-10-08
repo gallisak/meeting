@@ -13,7 +13,7 @@ describe('HealthController (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: false });
     setupApp(app);
     await app.init();
   });
@@ -50,6 +50,21 @@ describe('HealthController (e2e)', () => {
       .post('/auth/login')
       .send({})
       .expect(400);
+  });
+
+  it('marks every response with a request id', async () => {
+    const generated = await request(app.getHttpServer()).get('/health');
+    const passed = await request(app.getHttpServer())
+      .get('/rooms')
+      .set('x-request-id', 'client-id-123');
+    const invalid = await request(app.getHttpServer())
+      .get('/health')
+      .set('x-request-id', 'bad id with spaces');
+
+    expect(generated.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(passed.status).toBe(401);
+    expect(passed.headers['x-request-id']).toBe('client-id-123');
+    expect(invalid.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   afterEach(async () => {

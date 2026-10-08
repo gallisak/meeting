@@ -64,7 +64,7 @@ export class BookingsController {
     type: ErrorResponseDto,
   })
   @ApiServiceUnavailableResponse({
-    description: 'Server is busy, the request can be repeated',
+    description: 'Database is busy, the request can be repeated',
     type: ErrorResponseDto,
   })
   create(@CurrentUser('id') userId: string, @Body() dto: CreateBookingDto) {
@@ -136,7 +136,7 @@ export class BookingsController {
     type: ErrorResponseDto,
   })
   @ApiServiceUnavailableResponse({
-    description: 'Server is busy, the request can be repeated',
+    description: 'Database is busy, the request can be repeated',
     type: ErrorResponseDto,
   })
   update(

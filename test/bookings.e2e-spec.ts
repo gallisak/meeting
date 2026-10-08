@@ -9,7 +9,7 @@ import {
   isBookingOverlapError,
   isDeadlockError,
 } from '../src/bookings/booking-overlap.error.js';
-import { isDatabaseBusyError } from '../src/common/database-busy.error.js';
+import { isDatabaseUnavailableError } from '../src/common/database-unavailable.error.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -26,10 +26,7 @@ describe('Bookings (e2e)', () => {
   let inactiveRoomId: string;
   let ownerId: string;
 
-  const roomIds: string[] = [];
-
-  const suffix = randomUUID();
-  const emails = [`owner-${suffix}@test.local`, `other-${suffix}@test.local`];
+  const emails = ['owner@bookings.local', 'other@bookings.local'];
   const baseDay = Math.floor(Date.now() / DAY) * DAY + 7 * DAY;
 
   const slot = (day: number, startHour: number, endHour: number) => ({
@@ -57,7 +54,7 @@ describe('Bookings (e2e)', () => {
       imports: [AppModule],
     }).compile();
 
-    app = moduleFixture.createNestApplication();
+    app = moduleFixture.createNestApplication({ logger: ['error'] });
     setupApp(app);
     await app.init();
     await app.listen(0);
@@ -65,11 +62,11 @@ describe('Bookings (e2e)', () => {
     prisma = app.get(PrismaService);
 
     const room = await prisma.room.create({
-      data: { name: `Room ${suffix}`, capacity: 4, floor: 1 },
+      data: { name: 'Bookings room', capacity: 4, floor: 1 },
     });
     const inactiveRoom = await prisma.room.create({
       data: {
-        name: `Inactive room ${suffix}`,
+        name: 'Bookings inactive room',
         capacity: 4,
         floor: 1,
         isActive: false,
@@ -77,7 +74,6 @@ describe('Bookings (e2e)', () => {
     });
     roomId = room.id;
     inactiveRoomId = inactiveRoom.id;
-    roomIds.push(roomId, inactiveRoomId);
 
     ownerToken = await register(emails[0]);
     otherToken = await register(emails[1]);
@@ -89,9 +85,6 @@ describe('Bookings (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.booking.deleteMany({ where: { roomId: { in: roomIds } } });
-    await prisma.room.deleteMany({ where: { id: { in: roomIds } } });
-    await prisma.user.deleteMany({ where: { email: { in: emails } } });
     await app.close();
   });
 
@@ -261,9 +254,8 @@ describe('Bookings (e2e)', () => {
 
   it('does not book a room deactivated while the request waits', async () => {
     const room = await prisma.room.create({
-      data: { name: `Locked room ${suffix}`, capacity: 4, floor: 1 },
+      data: { name: 'Bookings locked room', capacity: 4, floor: 1 },
     });
-    roomIds.push(room.id);
 
     let status: number | undefined;
     let message: string | undefined;
@@ -361,8 +353,8 @@ describe('Bookings (e2e)', () => {
           .count()
           .catch((error: unknown) => error);
 
-        expect(isDatabaseBusyError(transactionError)).toBe(true);
-        expect(isDatabaseBusyError(poolError)).toBe(true);
+        expect(isDatabaseUnavailableError(transactionError)).toBe(true);
+        expect(isDatabaseUnavailableError(poolError)).toBe(true);
       });
     } finally {
       await client.$disconnect();
